@@ -139,70 +139,72 @@ class OrderController extends Controller
 
         $orderData = json_decode($body, true);
 
-        if (isset($orderData['id'], $orderData['billing']['first_name'], $orderData['billing']['last_name'], $orderData['billing']['email'], $orderData['line_items'])) {
-            try {
-                // Cria ou atualiza o cliente apenas com nome e e-mail
-                $client = Client::updateOrCreate(
-                    ['email' => $orderData['billing']['email']], // Usa o e-mail como chave para atualizar ou criar o cliente
-                    [
-                        'name' => $orderData['billing']['first_name'] . ' ' . $orderData['billing']['last_name'], // Concatena nome e sobrenome
-                        'email' => $orderData['billing']['email'],
-                    ]
-                );
-
-                // Cria ou atualiza a ordem
-                $order = Order::updateOrCreate(
-                    ['order_id' => $orderData['id']],
-                    [
-                        'customer_name' => $orderData['billing']['first_name'] . ' ' . $orderData['billing']['last_name'],
-                        'total' => $orderData['total'] ?? 0,
-                        'status' => $orderData['status'],
-                        'billing_address_1' => $orderData['billing']['address_1'] ?? null,
-                        'billing_address_2' => $orderData['billing']['address_2'] ?? null,
-                        'billing_city' => $orderData['billing']['city'] ?? null,
-                        'billing_state' => $orderData['billing']['state'] ?? null,
-                        'billing_postcode' => $orderData['billing']['postcode'] ?? null,
-                        'billing_country' => $orderData['billing']['country'] ?? null,
-                        'billing_email' => $orderData['billing']['email'] ?? null,
-                        'billing_phone' => $orderData['billing']['phone'] ?? null,
-                        'payment_method' => $orderData['payment_method'] ?? null,
-                        'payment_method_title' => $orderData['payment_method_title'] ?? null,
-                        'date_created' => $orderData['date_created'] ?? null,
-                        'date_modified' => $orderData['date_modified'] ?? null,
-                        'date_completed' => $orderData['date_completed'] ?? null,
-                        'date_paid' => $orderData['date_paid'] ?? null,
-                        'client_id' => $client->id, // Associa a ordem ao cliente criado/atualizado
-                    ]
-                );
-
-                // Dispara o job para envio de email de notificação
-                dispatch(new \App\Jobs\SendOrderPreparationEmail($order));
-
-                // Processa os itens do pedido
-                foreach ($orderData['line_items'] as $itemData) {
-                    OrderItem::updateOrCreate(
-                        ['order_id' => $order->id, 'product_name' => $itemData['name']],
+        if ($orderData['status'] == "completed") {
+            if (isset($orderData['id'], $orderData['billing']['first_name'], $orderData['billing']['last_name'], $orderData['billing']['email'], $orderData['line_items'])) {
+                try {
+                    // Cria ou atualiza o cliente apenas com nome e e-mail
+                    $client = Client::updateOrCreate(
+                        ['email' => $orderData['billing']['email']], // Usa o e-mail como chave para atualizar ou criar o cliente
                         [
-                            'quantity' => $itemData['quantity'],
-                            'total' => $itemData['total'],
-                            'price' => $itemData['price'],
-                            'image_url' => $itemData['image']['src'] ?? null,
+                            'name' => $orderData['billing']['first_name'] . ' ' . $orderData['billing']['last_name'], // Concatena nome e sobrenome
+                            'email' => $orderData['billing']['email'],
                         ]
                     );
+    
+                    // Cria ou atualiza a ordem
+                    $order = Order::updateOrCreate(
+                        ['order_id' => $orderData['id']],
+                        [
+                            'customer_name' => $orderData['billing']['first_name'] . ' ' . $orderData['billing']['last_name'],
+                            'total' => $orderData['total'] ?? 0,
+                            'status' => $orderData['status'],
+                            'billing_address_1' => $orderData['billing']['address_1'] ?? null,
+                            'billing_address_2' => $orderData['billing']['address_2'] ?? null,
+                            'billing_city' => $orderData['billing']['city'] ?? null,
+                            'billing_state' => $orderData['billing']['state'] ?? null,
+                            'billing_postcode' => $orderData['billing']['postcode'] ?? null,
+                            'billing_country' => $orderData['billing']['country'] ?? null,
+                            'billing_email' => $orderData['billing']['email'] ?? null,
+                            'billing_phone' => $orderData['billing']['phone'] ?? null,
+                            'payment_method' => $orderData['payment_method'] ?? null,
+                            'payment_method_title' => $orderData['payment_method_title'] ?? null,
+                            'date_created' => $orderData['date_created'] ?? null,
+                            'date_modified' => $orderData['date_modified'] ?? null,
+                            'date_completed' => $orderData['date_completed'] ?? null,
+                            'date_paid' => $orderData['date_paid'] ?? null,
+                            'client_id' => $client->id, // Associa a ordem ao cliente criado/atualizado
+                        ]
+                    );
+    
+                    // Dispara o job para envio de email de notificação
+                    dispatch(new \App\Jobs\SendOrderPreparationEmail($order));
+    
+                    // Processa os itens do pedido
+                    foreach ($orderData['line_items'] as $itemData) {
+                        OrderItem::updateOrCreate(
+                            ['order_id' => $order->id, 'product_name' => $itemData['name']],
+                            [
+                                'quantity' => $itemData['quantity'],
+                                'total' => $itemData['total'],
+                                'price' => $itemData['price'],
+                                'image_url' => $itemData['image']['src'] ?? null,
+                            ]
+                        );
+                    }
+    
+                    Log::info('Ordem e cliente processados com sucesso', ['order_id' => $order->order_id, 'client_id' => $client->id]);
+                    return response()->json(['message' => 'Ordem e cliente processados com sucesso!']);
+                } catch (\Exception $e) {
+                    Log::error('Falha ao Processar Ordem', [
+                        'error' => $e->getMessage(),
+                        'orderData' => $orderData,
+                    ]);
+                    return response()->json(['error' => 'Falha ao processar a ordem'], 500);
                 }
-
-                Log::info('Ordem e cliente processados com sucesso', ['order_id' => $order->order_id, 'client_id' => $client->id]);
-                return response()->json(['message' => 'Ordem e cliente processados com sucesso!']);
-            } catch (\Exception $e) {
-                Log::error('Falha ao Processar Ordem', [
-                    'error' => $e->getMessage(),
-                    'orderData' => $orderData,
-                ]);
-                return response()->json(['error' => 'Falha ao processar a ordem'], 500);
+            } else {
+                Log::error('Dados Incompletos da Ordem', ['orderData' => $orderData]);
+                return response()->json(['error' => 'Dados da ordem incompletos'], 400);
             }
-        } else {
-            Log::error('Dados Incompletos da Ordem', ['orderData' => $orderData]);
-            return response()->json(['error' => 'Dados da ordem incompletos'], 400);
         }
     }
 
